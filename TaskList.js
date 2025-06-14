@@ -370,10 +370,8 @@ const TaskList = ({ filterType = 'all', user, onNavigateToDay, selectedDate }) =
       case 'today': 
         console.log('Current date in getFilterTitle:', currentDate);
         return currentDate.toLocaleDateString('en-US', { 
-          weekday: 'long', 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric' 
+          month: 'short',
+          day: 'numeric'
         });
       case 'week': {
         const weekData = groupTasksByDay([]);
@@ -419,15 +417,11 @@ const TaskList = ({ filterType = 'all', user, onNavigateToDay, selectedDate }) =
           <Text style={styles.navButtonText}>‹</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.todayButton}
-          onPress={goToToday}
-          disabled={isToday()}
-        >
-          <Text style={[styles.todayButtonText, isToday() && styles.todayButtonDisabled]}>
-            {isToday() ? 'Current' : 'Today'}
+        {isToday() && (
+          <Text style={styles.currentText}>
+            Current
           </Text>
-        </TouchableOpacity>
+        )}
 
         <TouchableOpacity 
           style={styles.navButton}
@@ -766,45 +760,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#007AFF',
   },
-  todayButton: {
+  currentText: {
     paddingHorizontal: 20,
     paddingVertical: 8,
-    backgroundColor: '#007AFF',
-    borderRadius: 20,
-  },
-  todayButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#fff',
-  },
-  todayButtonDisabled: {
-    color: '#ccc',
-  },
-  
-  // Week information styles
-  weekInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
-  weekYear: {
-    fontSize: 20,
-    fontWeight: 'bold',
     color: '#007AFF',
-    marginRight: 8,
-  },
-  weekNumber: {
-    fontSize: 16,
-    color: '#666',
-    fontStyle: 'italic',
-  },
-  weekDateRange: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 8,
   },
   taskCard: {
     backgroundColor: '#fff',

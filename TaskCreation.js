@@ -7,7 +7,8 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
-  Platform
+  Platform,
+  Switch
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -28,8 +29,12 @@ const TaskCreation = ({ user, onLogout }) => {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [calendarEnabled, setCalendarEnabled] = useState(false);
   const [calendarPermission, setCalendarPermission] = useState(false);
+  const [timeEnabled, setTimeEnabled] = useState(true);
+  const [repeatEnabled, setRepeatEnabled] = useState(false);
+  const [repeatType, setRepeatType] = useState('daily');
 
   const categories = ['Work', 'Study', 'Family', 'Personal', 'Other'];
+  const repeatTypes = ['daily', 'weekly', 'monthly', 'yearly'];
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -53,13 +58,14 @@ const TaskCreation = ({ user, onLogout }) => {
         title: title.trim(),
         description: description.trim(),
         dueDate: dueDate.toISOString(),
-        dueTime: dueTime.toISOString(),
+        dueTime: timeEnabled ? dueTime.toISOString() : null,
         priority: priority,
         category: category,
         status: 'pending',
         userId: user.uid,
         userEmail: user.email,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        repeat: repeatEnabled ? repeatType : null
       });
 
       console.log('Task saved successfully with ID:', docRef.id);
@@ -107,6 +113,9 @@ const TaskCreation = ({ user, onLogout }) => {
       setDueTime(new Date());
       setPriority('Medium');
       setCategory('Work');
+      setTimeEnabled(true);
+      setRepeatEnabled(false);
+      setRepeatType('daily');
       
     } catch (error) {
       console.error('Detailed error adding task:', {
@@ -295,59 +304,17 @@ const TaskCreation = ({ user, onLogout }) => {
       {/* Date Picker */}
       <View style={styles.inputContainer}>
         <Text style={styles.label}>Due Date</Text>
-        {Platform.OS === 'web' ? (
-          <input
-            type="date"
-            value={dueDate.toISOString().split('T')[0]}
-            onChange={(e) => setDueDate(new Date(e.target.value))}
-            style={{
-              borderWidth: 1,
-              borderColor: '#ddd',
-              borderRadius: 8,
-              padding: 12,
-              fontSize: 16,
-              backgroundColor: '#fff',
-              width: '100%',
-              boxSizing: 'border-box'
-            }}
-          />
-        ) : (
-          <TouchableOpacity 
-            style={styles.dateTimeButton}
-            onPress={() => setShowDatePicker(true)}
-          >
-            <Text style={styles.dateTimeText}>{formatDate(dueDate)}</Text>
-          </TouchableOpacity>
-        )}
-        {showDatePicker && Platform.OS === 'ios' && (
-          <View style={styles.modalOverlay}>
-            <TouchableOpacity 
-              style={styles.modalBackground} 
-              activeOpacity={1} 
-              onPress={() => setShowDatePicker(false)}
-            />
-            <View style={styles.pickerContainer}>
-              <DateTimePicker
-                testID="dateTimePicker"
-                value={dueDate}
-                mode="date"
-                is24Hour={true}
-                display="spinner"
-                onChange={(event, selectedDate) => {
-                  if (selectedDate) {
-                    setDueDate(selectedDate);
-                  }
-                }}
-              />
-            </View>
-          </View>
-        )}
-        {showDatePicker && Platform.OS === 'android' && (
+        <TouchableOpacity
+          style={styles.dateButton}
+          onPress={() => setShowDatePicker(true)}
+        >
+          <Text>{dueDate.toLocaleDateString()}</Text>
+        </TouchableOpacity>
+
+        {showDatePicker && (
           <DateTimePicker
-            testID="dateTimePicker"
             value={dueDate}
             mode="date"
-            is24Hour={true}
             display="default"
             onChange={(event, selectedDate) => {
               setShowDatePicker(false);
@@ -359,75 +326,74 @@ const TaskCreation = ({ user, onLogout }) => {
         )}
       </View>
 
-      {/* Time Picker */}
-      <View style={styles.inputContainer}>
-        <Text style={styles.label}>Due Time</Text>
-        {Platform.OS === 'web' ? (
-          <input
-            type="time"
-            value={dueTime.toTimeString().slice(0, 5)}
-            onChange={(e) => {
-              const [hours, minutes] = e.target.value.split(':');
-              const newTime = new Date(dueTime);
-              newTime.setHours(parseInt(hours), parseInt(minutes));
-              setDueTime(newTime);
-            }}
-            style={{
-              borderWidth: 1,
-              borderColor: '#ddd',
-              borderRadius: 8,
-              padding: 12,
-              fontSize: 16,
-              backgroundColor: '#fff',
-              width: '100%',
-              boxSizing: 'border-box'
-            }}
+      <View style={styles.timeContainer}>
+        <View style={styles.timeHeader}>
+          <Text style={styles.label}>Due Time</Text>
+          <Switch
+            value={timeEnabled}
+            onValueChange={setTimeEnabled}
+            trackColor={{ false: '#767577', true: '#81b0ff' }}
+            thumbColor={timeEnabled ? '#2196F3' : '#f4f3f4'}
           />
-        ) : (
-          <TouchableOpacity 
-            style={styles.dateTimeButton}
-            onPress={() => setShowTimePicker(true)}
-          >
-            <Text style={styles.dateTimeText}>{formatTime(dueTime)}</Text>
-          </TouchableOpacity>
-        )}
-        {showTimePicker && Platform.OS === 'ios' && (
-          <View style={styles.modalOverlay}>
-            <TouchableOpacity 
-              style={styles.modalBackground} 
-              activeOpacity={1} 
-              onPress={() => setShowTimePicker(false)}
-            />
-            <View style={styles.pickerContainer}>
+        </View>
+        
+        {timeEnabled && (
+          <>
+            <TouchableOpacity
+              style={styles.dateButton}
+              onPress={() => setShowTimePicker(true)}
+            >
+              <Text>{dueTime.toLocaleTimeString()}</Text>
+            </TouchableOpacity>
+
+            {showTimePicker && (
               <DateTimePicker
-                testID="timePicker"
                 value={dueTime}
                 mode="time"
-                is24Hour={true}
-                display="spinner"
+                display="default"
                 onChange={(event, selectedTime) => {
+                  setShowTimePicker(false);
                   if (selectedTime) {
                     setDueTime(selectedTime);
                   }
                 }}
               />
-            </View>
-          </View>
+            )}
+          </>
         )}
-        {showTimePicker && Platform.OS === 'android' && (
-          <DateTimePicker
-            testID="timePicker"
-            value={dueTime}
-            mode="time"
-            is24Hour={true}
-            display="default"
-            onChange={(event, selectedTime) => {
-              setShowTimePicker(false);
-              if (selectedTime) {
-                setDueTime(selectedTime);
-              }
-            }}
+      </View>
+
+      <View style={styles.repeatContainer}>
+        <View style={styles.repeatHeader}>
+          <Text style={styles.label}>Repeat</Text>
+          <Switch
+            value={repeatEnabled}
+            onValueChange={setRepeatEnabled}
+            trackColor={{ false: '#767577', true: '#81b0ff' }}
+            thumbColor={repeatEnabled ? '#2196F3' : '#f4f3f4'}
           />
+        </View>
+        
+        {repeatEnabled && (
+          <View style={styles.categoryContainer}>
+            {repeatTypes.map((type) => (
+              <TouchableOpacity
+                key={type}
+                style={[
+                  styles.categoryButton,
+                  repeatType === type && styles.categoryButtonActive
+                ]}
+                onPress={() => setRepeatType(type)}
+              >
+                <Text style={[
+                  styles.categoryButtonText,
+                  repeatType === type && styles.categoryButtonTextActive
+                ]}>
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         )}
       </View>
 
@@ -457,19 +423,11 @@ const TaskCreation = ({ user, onLogout }) => {
 
       {/* Buttons */}
       <View style={styles.buttonContainer}>
-        <TouchableOpacity style={[styles.button, styles.saveButton]} onPress={handleSave}>
-          <Text style={styles.buttonText}>Save Task</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.button, styles.testButton]} onPress={testNotification}>
-          <Text style={styles.buttonText}>Test Notification</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.button, styles.calendarButton]} 
-          onPress={calendarEnabled ? checkCalendarConflicts : initializeCalendar}
+        <TouchableOpacity
+          style={[styles.button, styles.saveButton]}
+          onPress={checkCalendarConflicts}
         >
-          <Text style={styles.buttonText}>
-            {calendarEnabled ? 'Check Conflicts' : 'Enable Calendar'}
-          </Text>
+          <Text style={styles.buttonText}>Save Task</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -530,7 +488,7 @@ const styles = StyleSheet.create({
     height: 100,
     textAlignVertical: 'top',
   },
-  dateTimeButton: {
+  dateButton: {
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
@@ -561,15 +519,15 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginTop: 20,
+    alignItems: 'center',
   },
   button: {
-    backgroundColor: '#007AFF',
     padding: 15,
-    borderRadius: 8,
+    borderRadius: 5,
+    marginBottom: 10,
     alignItems: 'center',
+    width: '80%',
   },
   buttonText: {
     color: '#fff',
@@ -584,20 +542,11 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 40,
   },
-  testButton: {
-    backgroundColor: '#ff9800',
-    padding: 12,
+  logoutButton: {
+    backgroundColor: '#ff4444',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
     borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 20,
-    borderWidth: 2,
-    borderColor: '#f57c00',
-  },
-  calendarButton: {
-    backgroundColor: '#34C759',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
   },
   categoryContainer: {
     flexDirection: 'row',
@@ -605,7 +554,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   categoryButton: {
-    width: '25%',
+    flex: 1,
     padding: 10,
     borderRadius: 8,
     backgroundColor: '#f0f0f0',
@@ -613,7 +562,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 2,
   },
   categoryButtonActive: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#2196F3',
   },
   categoryButtonText: {
     fontSize: 14,
@@ -640,20 +589,23 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  pickerContainer: {
-    backgroundColor: 'white',
-    borderRadius: 10,
-    padding: 10,
-    width: '80%',
-    maxWidth: 400,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+  timeContainer: {
+    marginBottom: 15,
+  },
+  timeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  repeatContainer: {
+    marginBottom: 15,
+  },
+  repeatHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
   },
 });
 
