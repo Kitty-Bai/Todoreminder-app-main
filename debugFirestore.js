@@ -1,65 +1,71 @@
 import { db, auth } from './firebaseConfig';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 
-// 调试工具：检查Firestore连接和数据
+// Debug tool: Check Firestore connection and data
 export const debugFirestore = async () => {
-  console.log('=== Firestore 调试开始 ===');
+  console.log('=== Firestore Debug Start ===');
   
   try {
-    // 1. 检查认证状态
+    // 1. Check Authentication Status
     const currentUser = auth.currentUser;
-    console.log('当前用户:', currentUser ? {
+    console.log('Current user:', currentUser ? {
       uid: currentUser.uid,
       email: currentUser.email,
-      displayName: currentUser.displayName
-    } : '未登录');
+      isAnonymous: currentUser.isAnonymous
+    } : 'Not logged in');
     
     if (!currentUser) {
-      console.log('❌ 用户未登录');
+      console.log('❌ User not logged in');
       return;
     }
     
-    // 2. 检查网络连接
-    console.log('🔍 检查网络连接...');
+    // 2. Check Network Connection
+    console.log('🔍 Checking network connection...');
     
-    // 3. 查询用户的所有任务
-    console.log('🔍 查询用户任务...');
-    const tasksRef = collection(db, 'tasks');
-    const q = query(tasksRef, where('userId', '==', currentUser.uid));
+    // 3. Query all tasks for the user
+    console.log('🔍 Querying user tasks...');
+    const userTasksQuery = query(
+      collection(db, 'tasks'),
+      where('userId', '==', currentUser.uid)
+    );
     
-    const querySnapshot = await getDocs(q);
-    console.log('📊 查询结果:', {
-      size: querySnapshot.size,
-      empty: querySnapshot.empty
+    const querySnapshot = await getDocs(userTasksQuery);
+    console.log('📊 Query results:', {
+      userId: currentUser.uid,
+      tasksCount: querySnapshot.size,
+      tasks: querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
     });
     
     if (querySnapshot.empty) {
-      console.log('📝 没有找到任务数据');
+      console.log('📝 No tasks found');
       
-      // 4. 检查是否有任何任务（不过滤用户）
-      console.log('🔍 检查数据库中的所有任务...');
+      // 4. Check if there are any tasks (without user filter)
+      console.log('🔍 Checking all tasks in database...');
       const allTasksSnapshot = await getDocs(collection(db, 'tasks'));
-      console.log('📊 数据库中的所有任务数量:', allTasksSnapshot.size);
+      console.log('📊 Total tasks in database:', allTasksSnapshot.size);
       
       if (allTasksSnapshot.size > 0) {
-        console.log('💡 数据库中有任务，但没有属于当前用户的任务');
-        // 显示前几个任务的userId用于调试
+        console.log('💡 Database has tasks, but none belong to the current user');
+        // Display the userId of the first few tasks for debugging
         allTasksSnapshot.docs.slice(0, 3).forEach((doc, index) => {
           const data = doc.data();
-          console.log(`任务 ${index + 1}:`, {
+          console.log(`Task ${index + 1}:`, {
             id: doc.id,
             userId: data.userId,
             title: data.title
           });
         });
       } else {
-        console.log('💡 数据库中没有任何任务');
+        console.log('💡 Database has no tasks');
       }
     } else {
-      console.log('✅ 找到用户任务:');
+      console.log('✅ Found user tasks:');
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        console.log(`任务: ${data.title}`, {
+        console.log(`Task: ${data.title}`, {
           id: doc.id,
           dueDate: data.dueDate,
           priority: data.priority,
@@ -69,20 +75,20 @@ export const debugFirestore = async () => {
     }
     
   } catch (error) {
-    console.error('❌ 调试过程中出错:', error);
-    console.error('错误详情:', {
+    console.error('❌ Debugging error:', error);
+    console.error('Error details:', {
       message: error.message,
       code: error.code,
       stack: error.stack
     });
   }
   
-  console.log('=== Firestore 调试结束 ===');
+  console.log('=== Firestore Debug End ===');
 };
 
-// 自动运行调试（在开发环境中）
+// Automatically run debugging (in development environment)
 if (__DEV__) {
-  // 延迟执行，确保认证状态已经加载
+  // Delay execution to ensure authentication state has loaded
   setTimeout(() => {
     debugFirestore();
   }, 3000);

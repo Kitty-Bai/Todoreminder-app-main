@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import AuthService from './AuthService';
+import LocalStorageService from './LocalStorageService';
 
 const LoginScreen = () => {
   const navigation = useNavigation();
@@ -25,17 +26,15 @@ const LoginScreen = () => {
   const [resetEmail, setResetEmail] = useState('');
 
   const handleAuth = async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-
     try {
       setError('');
       setIsLoading(true);
-      console.log(`Attempting ${isLogin ? 'login' : 'registration'} with:`, { email });
 
       if (showResetPassword) {
+        if (!resetEmail.trim()) {
+          Alert.alert('Error', 'Please enter your email address');
+          return;
+        }
         await AuthService.resetPassword(resetEmail);
         Alert.alert(
           'Password Reset',
@@ -45,16 +44,37 @@ const LoginScreen = () => {
         return;
       }
 
+      if (!email.trim() || !password.trim()) {
+        Alert.alert('Error', 'Please fill in all fields');
+        return;
+      }
+
+      console.log(`Attempting ${isLogin ? 'login' : 'registration'} with:`, { email });
+
       if (isLogin) {
         const user = await AuthService.login(email, password);
         console.log('Login successful:', user);
+        await LocalStorageService.clearAll();
       } else {
         const user = await AuthService.register(email, password);
         console.log('Registration successful:', user);
+        await LocalStorageService.clearAll();
       }
     } catch (error) {
       console.error('Authentication error:', error);
-      setError(error.message);
+      let errorMessage = 'Authentication failed. ';
+      if (error.code === 'auth/invalid-email') {
+        errorMessage += 'Invalid email format.';
+      } else if (error.code === 'auth/user-not-found') {
+        errorMessage += 'Email not found.';
+      } else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        errorMessage += 'Incorrect password.';
+      } else if (error.code === 'auth/email-already-in-use') {
+        errorMessage += 'Email is already registered.';
+      } else {
+        errorMessage += error.message || 'Please try again.';
+      }
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
