@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,124 +13,124 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { collection, addDoc } from 'firebase/firestore';
-import MockAuthService from './MockAuthService';
-import { db } from './firebaseConfig';
+import { db, auth } from './firebaseConfig';
 import NotificationService from './NotificationService';
 import CalendarService from './CalendarService';
+import LocalStorageService from './LocalStorageService';
+import FirebaseService from './FirebaseService';
+import AITaskClassifier from './AITaskClassifier';
+import LocationService from './LocationService';
+import MotionSensorService from './MotionSensorService';
+import AuthService from './AuthService';
 
-const TaskCreation = ({ user, onLogout }) => {
+const TaskCreation = ({ navigation }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [selectedTag, setSelectedTag] = useState('Work');
   const [dueDate, setDueDate] = useState(new Date());
   const [dueTime, setDueTime] = useState(new Date());
-  const [priority, setPriority] = useState('Medium');
-  const [category, setCategory] = useState('Work');
+  const [timeEnabled, setTimeEnabled] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
-  const [calendarEnabled, setCalendarEnabled] = useState(false);
-  const [calendarPermission, setCalendarPermission] = useState(false);
-  const [timeEnabled, setTimeEnabled] = useState(true);
   const [repeatEnabled, setRepeatEnabled] = useState(false);
-  const [repeatType, setRepeatType] = useState('daily');
+  const [repeat, setRepeat] = useState('daily');
+  const [priority, setPriority] = useState('Medium');
+  const [tags] = useState(['Work', 'Study', 'Family', 'Personal', 'Other']);
+  
+  // AI and sensor states
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [showAiSuggestions, setShowAiSuggestions] = useState(false);
+  const [locationEnabled, setLocationEnabled] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState(null);
 
-  const categories = ['Work', 'Study', 'Family', 'Personal', 'Other'];
-  const repeatTypes = ['daily', 'weekly', 'monthly', 'yearly'];
+  // Reset form function
+  const resetForm = () => {
+    setTitle('');
+    setDescription('');
+    setSelectedTag('Work');
+    setDueDate(new Date());
+    setDueTime(new Date());
+    setTimeEnabled(false);
+    setShowDatePicker(false);
+    setShowTimePicker(false);
+    setRepeatEnabled(false);
+    setRepeat('daily');
+    setPriority('Medium');
+    setShowAiSuggestions(false);
+    setAiSuggestions([]);
+    setLocationEnabled(false);
+    setCurrentLocation(null);
+  };
 
   const handleSave = async () => {
     if (!title.trim()) {
-      Alert.alert('Error', 'Please enter a task title');
+      Alert.alert('Error', 'Please enter a title');
       return;
     }
 
-    console.log('Attempting to save task...', {
-      user: user.uid,
-      email: user.email,
-      title: title.trim()
-    });
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      Alert.alert('Error', 'You must be logged in to create tasks');
+      return;
+    }
+
+    const newTask = {
+      title: title.trim(),
+      description: description.trim(),
+      tag: selectedTag,
+      priority,
+      dueDate: dueDate.toISOString(),
+      dueTime: timeEnabled ? dueTime.toISOString() : null,
+      repeat: repeatEnabled ? repeat : null,
+      completed: false,
+      createdAt: new Date().toISOString(),
+      userId: currentUser.uid
+    };
 
     try {
-      if (!user || !user.uid) {
-        Alert.alert('Error', 'User not authenticated');
-        return;
-      }
+      // Save to Firebase
+      const taskId = await FirebaseService.addTask(newTask);
+      console.log('Task saved successfully with ID:', taskId);
+      
+      // Save to local storage
+      await LocalStorageService.addTask({ ...newTask, id: taskId });
 
-      const docRef = await addDoc(collection(db, 'tasks'), {
-        title: title.trim(),
-        description: description.trim(),
-        dueDate: dueDate.toISOString(),
-        dueTime: timeEnabled ? dueTime.toISOString() : null,
-        priority: priority,
-        category: category,
-        status: 'pending',
-        userId: user.uid,
-        userEmail: user.email,
-        createdAt: new Date().toISOString(),
-        repeat: repeatEnabled ? repeatType : null
-      });
-
-      console.log('Task saved successfully with ID:', docRef.id);
-      
-      const taskForNotification = {
-        id: docRef.id,
-        title: title.trim(),
-        description: description.trim(),
-        dueDate: dueDate.toISOString().split('T')[0],
-        dueTime: dueTime.toISOString().split('T')[1],
-        priority: priority,
-        category: category
-      };
-      
-      const notificationId = await NotificationService.scheduleTaskReminder(taskForNotification);
-      if (notificationId) {
-        console.log('✅ Notification scheduled for task:', title.trim());
-      }
-      
-      if (calendarEnabled && calendarPermission) {
-        try {
-          const calendarEvent = await CalendarService.createTaskEvent({
-            title: title.trim(),
-            description: description.trim(),
-            dueDate: dueDate.toISOString().split('T')[0],
-            dueTime: dueTime.toISOString().split('T')[1],
-            priority: priority,
-            category: category
-          });
-          console.log('✅ Task added to device calendar:', calendarEvent.id);
-        } catch (error) {
-          console.error('⚠️ Could not add to device calendar:', error);
+      // Sync with calendar
+      try {
+        const calendarPermission = await CalendarService.hasPermissions();
+        if (!calendarPermission) {
+          const granted = await CalendarService.requestPermissions();
+          if (!granted) {
+            console.log('Calendar permissions not granted');
+            return;
+          }
         }
+        await CalendarService.createTaskEvent(newTask);
+        console.log('Task synced with calendar successfully');
+      } catch (calendarError) {
+        console.error('Failed to sync with calendar:', calendarError);
+        // Don't block task creation if calendar sync fails
       }
       
-      if (Platform.OS === 'web') {
-        alert('✅ Success! Task created successfully with reminder set!');
-      } else {
-        Alert.alert('Success', 'Task created successfully!\nReminder notification scheduled 15 minutes before due time.');
-      }
+      // Reset form
+      resetForm();
       
-      setTitle('');
-      setDescription('');
-      setDueDate(new Date());
-      setDueTime(new Date());
-      setPriority('Medium');
-      setCategory('Work');
-      setTimeEnabled(true);
-      setRepeatEnabled(false);
-      setRepeatType('daily');
-      
+      // Show success message
+      Alert.alert('Success', 'Task saved successfully', [
+        {
+          text: 'OK',
+          onPress: () => {
+            if (navigation && typeof navigation.goBack === 'function') {
+              navigation.goBack();
+            } else {
+              console.log('Navigation not available, task saved but cannot return to previous screen');
+            }
+          }
+        }
+      ]);
     } catch (error) {
-      console.error('Detailed error adding task:', {
-        code: error.code,
-        message: error.message,
-        details: error
-      });
-      
-      if (error.code === 'permission-denied') {
-        Alert.alert('Error', 'Permission denied. Please check Firestore security rules.');
-      } else if (error.code === 'unauthenticated') {
-        Alert.alert('Error', 'User not authenticated. Please login again.');
-      } else {
-        Alert.alert('Error', `Failed to create task: ${error.message}`);
-      }
+      console.error('Error saving task:', error);
+      Alert.alert('Error', 'Failed to save task');
     }
   };
 
@@ -147,9 +147,15 @@ const TaskCreation = ({ user, onLogout }) => {
           text: 'Logout',
           onPress: async () => {
             try {
-              await MockAuthService.signOut();
-              onLogout();
+              await AuthService.logout();
+              if (navigation) {
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Login' }],
+                });
+              }
             } catch (error) {
+              console.error('Logout error:', error);
               Alert.alert('Error', 'Failed to logout');
             }
           },
@@ -171,8 +177,6 @@ const TaskCreation = ({ user, onLogout }) => {
       console.log('📅 Initializing calendar...');
       const initialized = await CalendarService.initialize();
       if (initialized) {
-        setCalendarPermission(true);
-        setCalendarEnabled(true);
         console.log('✅ Calendar initialized successfully');
         Alert.alert('Success', 'Calendar access granted! Tasks will be added to your device calendar.');
       } else {
@@ -184,12 +188,87 @@ const TaskCreation = ({ user, onLogout }) => {
     }
   };
 
-  const checkCalendarConflicts = async () => {
-    if (!calendarPermission) {
-      Alert.alert('Calendar Access Required', 'Please enable calendar access first.');
+  // AI Smart Suggestions
+  const generateAISuggestions = () => {
+    if (!title.trim()) {
+      Alert.alert('AI Suggestion', 'Please enter a task title first');
       return;
     }
 
+    try {
+      const analysis = AITaskClassifier.generateSuggestions(title, description);
+      setAiSuggestions(analysis.suggestions);
+      setShowAiSuggestions(true);
+
+      // Auto-apply suggestions if confidence is high
+      if (analysis.confidence > 40) {
+        setSelectedTag(analysis.suggestedCategory);
+        setPriority(analysis.suggestedPriority);
+      }
+
+      Alert.alert(
+        '🤖 AI Analysis Complete',
+        `Confidence: ${analysis.confidence}%\nSuggested Category: ${analysis.suggestedCategory}\nSuggested Priority: ${analysis.suggestedPriority}`,
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      console.error('AI suggestion error:', error);
+      Alert.alert('Error', 'Failed to generate AI suggestions');
+    }
+  };
+
+  // Location Services
+  const enableLocationReminder = async () => {
+    try {
+      const initialized = await LocationService.initialize();
+      if (initialized) {
+        const location = await LocationService.getCurrentLocation();
+        setCurrentLocation(location);
+        setLocationEnabled(true);
+        Alert.alert('Location Enabled', `Current location: ${location?.address || 'Location obtained'}`);
+      } else {
+        Alert.alert('Location Error', 'Failed to enable location services. Please check your permissions.');
+      }
+    } catch (error) {
+      console.error('Location initialization error:', error);
+      Alert.alert('Error', 'Failed to initialize location services');
+    }
+  };
+
+  // Initialize motion sensor for shake-to-add
+  useEffect(() => {
+    const initializeMotionSensor = async () => {
+      try {
+        const isAvailable = await MotionSensorService.initialize();
+        if (isAvailable) {
+          MotionSensorService.startShakeDetection(() => {
+            Alert.alert(
+              '📳 Shake Detected!',
+              'Quick add a new task?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Add Task', onPress: () => {
+                  setTitle('Quick Task');
+                  setDescription('Added via shake gesture');
+                }}
+              ]
+            );
+          });
+        }
+      } catch (error) {
+        console.error('Motion sensor initialization error:', error);
+      }
+    };
+
+    initializeMotionSensor();
+
+    // Cleanup on unmount
+    return () => {
+      MotionSensorService.stopShakeDetection();
+    };
+  }, []);
+
+  const checkCalendarConflicts = async () => {
     try {
       const taskDateTime = `${dueDate.toISOString().split('T')[0]} ${dueTime.toISOString().split('T')[1]}`;
       const conflicts = await CalendarService.checkTimeConflicts(taskDateTime);
@@ -224,13 +303,34 @@ const TaskCreation = ({ user, onLogout }) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  // Priority buttons
+  const getPriorityButtonStyle = (buttonPriority) => {
+    let backgroundColor = '#f0f0f0';  // 默认背景色
+    if (priority === buttonPriority) {
+      switch (buttonPriority) {
+        case 'High':
+          backgroundColor = '#ff4444';  // 红色
+          break;
+        case 'Medium':
+          backgroundColor = '#ff9800';  // 橙色
+          break;
+        case 'Low':
+          backgroundColor = '#4caf50';  // 绿色
+          break;
+      }
+    }
+    return [
+      styles.priorityButton,
+      { backgroundColor }
+    ];
+  };
+
   return (
     <ScrollView style={styles.container}>
       {/* Header with user info and logout */}
       <View style={styles.headerContainer}>
         <View>
           <Text style={styles.header}>Create New Task</Text>
-          <Text style={styles.userInfo}>Welcome, {user.email}</Text>
         </View>
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Text style={styles.logoutText}>Logout</Text>
@@ -261,42 +361,97 @@ const TaskCreation = ({ user, onLogout }) => {
         />
       </View>
 
-      {/* Category Buttons */}
+      {/* AI Smart Features */}
+      <View style={styles.smartFeaturesContainer}>
+        <Text style={styles.smartFeaturesTitle}>🤖 Smart Features</Text>
+        <View style={styles.smartButtonsRow}>
+          <TouchableOpacity 
+            style={styles.smartButton}
+            onPress={generateAISuggestions}
+          >
+            <Text style={styles.smartButtonText}>🎯 AI Suggest</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.smartButton, locationEnabled && styles.smartButtonActive]}
+            onPress={enableLocationReminder}
+          >
+            <Text style={[styles.smartButtonText, locationEnabled && styles.smartButtonTextActive]}>
+              📍 Location
+            </Text>
+          </TouchableOpacity>
+        </View>
+        
+        {showAiSuggestions && aiSuggestions.length > 0 && (
+          <View style={styles.suggestionsContainer}>
+            <Text style={styles.suggestionsTitle}>AI Suggestions:</Text>
+            {aiSuggestions.map((suggestion, index) => (
+              <Text key={index} style={styles.suggestionText}>• {suggestion}</Text>
+            ))}
+          </View>
+        )}
+        
+        {currentLocation && (
+          <View style={styles.locationContainer}>
+            <Text style={styles.locationText}>📍 {currentLocation.address}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Tag Input */}
       <View style={styles.inputContainer}>
-        <Text style={styles.label}>Category</Text>
-        <View style={styles.categoryContainer}>
-          {categories.slice(0, 4).map((cat) => (
+        <Text style={styles.label}>Tag</Text>
+        <View style={styles.tagContainer}>
+          {tags.map((tag) => (
             <TouchableOpacity
-              key={cat}
+              key={tag}
               style={[
-                styles.categoryButton,
-                category === cat && styles.categoryButtonActive
+                styles.tagButton,
+                selectedTag === tag && styles.tagButtonActive
               ]}
-              onPress={() => setCategory(cat)}
+              onPress={() => setSelectedTag(tag)}
             >
               <Text style={[
-                styles.categoryButtonText,
-                category === cat && styles.categoryButtonTextActive
+                styles.tagButtonText,
+                selectedTag === tag && styles.tagButtonTextActive
               ]}>
-                {cat}
+                {tag}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
-        <View style={styles.categoryContainer}>
+      </View>
+
+      {/* Priority Selection */}
+      <View style={styles.inputContainer}>
+        <Text style={styles.label}>Priority</Text>
+        <View style={styles.priorityContainer}>
           <TouchableOpacity
-            style={[
-              styles.categoryButton,
-              category === 'Other' && styles.categoryButtonActive
-            ]}
-            onPress={() => setCategory('Other')}
+            style={getPriorityButtonStyle('High')}
+            onPress={() => setPriority('High')}
           >
             <Text style={[
-              styles.categoryButtonText,
-              category === 'Other' && styles.categoryButtonTextActive
-            ]}>
-              Other
-            </Text>
+              styles.priorityButtonText,
+              priority === 'High' && styles.priorityButtonTextActive
+            ]}>High</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={getPriorityButtonStyle('Medium')}
+            onPress={() => setPriority('Medium')}
+          >
+            <Text style={[
+              styles.priorityButtonText,
+              priority === 'Medium' && styles.priorityButtonTextActive
+            ]}>Medium</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={getPriorityButtonStyle('Low')}
+            onPress={() => setPriority('Low')}
+          >
+            <Text style={[
+              styles.priorityButtonText,
+              priority === 'Low' && styles.priorityButtonTextActive
+            ]}>Low</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -306,7 +461,7 @@ const TaskCreation = ({ user, onLogout }) => {
         <Text style={styles.label}>Due Date</Text>
         <TouchableOpacity
           style={styles.dateButton}
-          onPress={() => setShowDatePicker(true)}
+          onPress={() => setShowDatePicker(!showDatePicker)}
         >
           <Text>{dueDate.toLocaleDateString()}</Text>
         </TouchableOpacity>
@@ -315,9 +470,8 @@ const TaskCreation = ({ user, onLogout }) => {
           <DateTimePicker
             value={dueDate}
             mode="date"
-            display="default"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             onChange={(event, selectedDate) => {
-              setShowDatePicker(false);
               if (selectedDate) {
                 setDueDate(selectedDate);
               }
@@ -341,18 +495,17 @@ const TaskCreation = ({ user, onLogout }) => {
           <>
             <TouchableOpacity
               style={styles.dateButton}
-              onPress={() => setShowTimePicker(true)}
+              onPress={() => setShowTimePicker(!showTimePicker)}
             >
-              <Text>{dueTime.toLocaleTimeString()}</Text>
+              <Text>{dueTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</Text>
             </TouchableOpacity>
 
             {showTimePicker && (
               <DateTimePicker
                 value={dueTime}
                 mode="time"
-                display="default"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                 onChange={(event, selectedTime) => {
-                  setShowTimePicker(false);
                   if (selectedTime) {
                     setDueTime(selectedTime);
                   }
@@ -363,7 +516,8 @@ const TaskCreation = ({ user, onLogout }) => {
         )}
       </View>
 
-      <View style={styles.repeatContainer}>
+      {/* Repeat Input */}
+      <View style={styles.inputContainer}>
         <View style={styles.repeatHeader}>
           <Text style={styles.label}>Repeat</Text>
           <Switch
@@ -375,57 +529,72 @@ const TaskCreation = ({ user, onLogout }) => {
         </View>
         
         {repeatEnabled && (
-          <View style={styles.categoryContainer}>
-            {repeatTypes.map((type) => (
-              <TouchableOpacity
-                key={type}
-                style={[
-                  styles.categoryButton,
-                  repeatType === type && styles.categoryButtonActive
-                ]}
-                onPress={() => setRepeatType(type)}
-              >
-                <Text style={[
-                  styles.categoryButtonText,
-                  repeatType === type && styles.categoryButtonTextActive
-                ]}>
-                  {type.charAt(0).toUpperCase() + type.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </View>
-
-      {/* Priority Buttons */}
-      <View style={styles.inputContainer}>
-        <Text style={styles.label}>Priority</Text>
-        <View style={styles.categoryContainer}>
-          {['High', 'Medium', 'Low'].map((pri) => (
+          <View style={styles.repeatContainer}>
             <TouchableOpacity
-              key={pri}
               style={[
-                styles.categoryButton,
-                priority === pri && styles.categoryButtonActive
+                styles.repeatButton,
+                repeat === 'daily' && styles.repeatButtonActive
               ]}
-              onPress={() => setPriority(pri)}
+              onPress={() => setRepeat('daily')}
             >
               <Text style={[
-                styles.categoryButtonText,
-                priority === pri && styles.categoryButtonTextActive
+                styles.repeatButtonText,
+                repeat === 'daily' && styles.repeatButtonTextActive
               ]}>
-                {pri}
+                Daily
               </Text>
             </TouchableOpacity>
-          ))}
-        </View>
+            <TouchableOpacity
+              style={[
+                styles.repeatButton,
+                repeat === 'weekly' && styles.repeatButtonActive
+              ]}
+              onPress={() => setRepeat('weekly')}
+            >
+              <Text style={[
+                styles.repeatButtonText,
+                repeat === 'weekly' && styles.repeatButtonTextActive
+              ]}>
+                Weekly
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.repeatButton,
+                repeat === 'monthly' && styles.repeatButtonActive
+              ]}
+              onPress={() => setRepeat('monthly')}
+            >
+              <Text style={[
+                styles.repeatButtonText,
+                repeat === 'monthly' && styles.repeatButtonTextActive
+              ]}>
+                Monthly
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.repeatButton,
+                repeat === 'yearly' && styles.repeatButtonActive
+              ]}
+              onPress={() => setRepeat('yearly')}
+            >
+              <Text style={[
+                styles.repeatButtonText,
+                repeat === 'yearly' && styles.repeatButtonTextActive
+              ]}>
+                Yearly
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       {/* Buttons */}
       <View style={styles.buttonContainer}>
         <TouchableOpacity
           style={[styles.button, styles.saveButton]}
-          onPress={checkCalendarConflicts}
+          onPress={handleSave}
         >
           <Text style={styles.buttonText}>Save Task</Text>
         </TouchableOpacity>
@@ -457,7 +626,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   logoutButton: {
-    backgroundColor: '#ff4444',
+    backgroundColor: '#007AFF',
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 8,
@@ -542,34 +711,26 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 40,
   },
-  logoutButton: {
-    backgroundColor: '#ff4444',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  categoryContainer: {
+  tagContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
+    flexWrap: 'wrap',
+    marginHorizontal: -4,
   },
-  categoryButton: {
-    flex: 1,
-    padding: 10,
+  tagButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    margin: 4,
     borderRadius: 8,
     backgroundColor: '#f0f0f0',
-    alignItems: 'center',
-    marginHorizontal: 2,
   },
-  categoryButtonActive: {
-    backgroundColor: '#2196F3',
+  tagButtonActive: {
+    backgroundColor: '#007AFF',
   },
-  categoryButtonText: {
-    fontSize: 14,
+  tagButtonText: {
     color: '#333',
-    fontWeight: '500',
+    fontWeight: '600',
   },
-  categoryButtonTextActive: {
+  tagButtonTextActive: {
     color: '#fff',
   },
   modalOverlay: {
@@ -599,13 +760,127 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   repeatContainer: {
-    marginBottom: 15,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  repeatButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    margin: 4,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+  },
+  repeatButtonActive: {
+    backgroundColor: '#007AFF',
+  },
+  repeatButtonText: {
+    color: '#333',
+    fontWeight: '600',
+  },
+  repeatButtonTextActive: {
+    color: '#fff',
   },
   repeatHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 5,
+    marginBottom: 8,
+  },
+  priorityContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  priorityButton: {
+    flex: 1,
+    padding: 12,
+    marginHorizontal: 4,
+    borderRadius: 8,
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+  },
+  priorityButtonText: {
+    color: '#333',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  priorityButtonTextActive: {
+    color: '#fff',
+  },
+  // Smart Features Styles
+  smartFeaturesContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  smartFeaturesTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  smartButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 12,
+  },
+  smartButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#e3f2fd',
+    borderWidth: 1,
+    borderColor: '#2196f3',
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  smartButtonActive: {
+    backgroundColor: '#2196f3',
+  },
+  smartButtonText: {
+    color: '#2196f3',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  smartButtonTextActive: {
+    color: '#fff',
+  },
+  suggestionsContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4caf50',
+  },
+  suggestionsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  suggestionText: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  locationContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#ff9800',
+  },
+  locationText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
   },
 });
 

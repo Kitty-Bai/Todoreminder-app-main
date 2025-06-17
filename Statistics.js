@@ -35,15 +35,15 @@ const Statistics = ({ user }) => {
 
   const calculateStats = (tasks) => {
     const todayPending = tasks.filter(task => 
-      task.status === 'pending' && isToday(task.dueDate)
+      !task.completed && task.status !== 'completed' && isToday(task.dueDate)
     ).length;
 
     const upcomingPending = tasks.filter(task => 
-      task.status === 'pending' && isUpcoming(task.dueDate)
+      !task.completed && task.status !== 'completed' && isUpcoming(task.dueDate)
     ).length;
 
     const completed = tasks.filter(task => 
-      task.status === 'completed'
+      task.completed || task.status === 'completed'
     ).length;
 
     const total = tasks.length;
