@@ -13,7 +13,6 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { collection, addDoc } from 'firebase/firestore';
-import MockAuthService from './MockAuthService';
 import { db, auth } from './firebaseConfig';
 import NotificationService from './NotificationService';
 import CalendarService from './CalendarService';
@@ -22,6 +21,7 @@ import FirebaseService from './FirebaseService';
 import AITaskClassifier from './AITaskClassifier';
 import LocationService from './LocationService';
 import MotionSensorService from './MotionSensorService';
+import AuthService from './AuthService';
 
 const TaskCreation = ({ navigation }) => {
   const [title, setTitle] = useState('');
@@ -42,6 +42,25 @@ const TaskCreation = ({ navigation }) => {
   const [showAiSuggestions, setShowAiSuggestions] = useState(false);
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
+
+  // Reset form function
+  const resetForm = () => {
+    setTitle('');
+    setDescription('');
+    setSelectedTag('Work');
+    setDueDate(new Date());
+    setDueTime(new Date());
+    setTimeEnabled(false);
+    setShowDatePicker(false);
+    setShowTimePicker(false);
+    setRepeatEnabled(false);
+    setRepeat('daily');
+    setPriority('Medium');
+    setShowAiSuggestions(false);
+    setAiSuggestions([]);
+    setLocationEnabled(false);
+    setCurrentLocation(null);
+  };
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -75,6 +94,26 @@ const TaskCreation = ({ navigation }) => {
       
       // Save to local storage
       await LocalStorageService.addTask({ ...newTask, id: taskId });
+
+      // Sync with calendar
+      try {
+        const calendarPermission = await CalendarService.hasPermissions();
+        if (!calendarPermission) {
+          const granted = await CalendarService.requestPermissions();
+          if (!granted) {
+            console.log('Calendar permissions not granted');
+            return;
+          }
+        }
+        await CalendarService.createTaskEvent(newTask);
+        console.log('Task synced with calendar successfully');
+      } catch (calendarError) {
+        console.error('Failed to sync with calendar:', calendarError);
+        // Don't block task creation if calendar sync fails
+      }
+      
+      // Reset form
+      resetForm();
       
       // Show success message
       Alert.alert('Success', 'Task saved successfully', [
@@ -108,8 +147,15 @@ const TaskCreation = ({ navigation }) => {
           text: 'Logout',
           onPress: async () => {
             try {
-              await MockAuthService.signOut();
+              await AuthService.logout();
+              if (navigation) {
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Login' }],
+                });
+              }
             } catch (error) {
+              console.error('Logout error:', error);
               Alert.alert('Error', 'Failed to logout');
             }
           },
@@ -257,6 +303,28 @@ const TaskCreation = ({ navigation }) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  // Priority buttons
+  const getPriorityButtonStyle = (buttonPriority) => {
+    let backgroundColor = '#f0f0f0';  // 默认背景色
+    if (priority === buttonPriority) {
+      switch (buttonPriority) {
+        case 'High':
+          backgroundColor = '#ff4444';  // 红色
+          break;
+        case 'Medium':
+          backgroundColor = '#ff9800';  // 橙色
+          break;
+        case 'Low':
+          backgroundColor = '#4caf50';  // 绿色
+          break;
+      }
+    }
+    return [
+      styles.priorityButton,
+      { backgroundColor }
+    ];
+  };
+
   return (
     <ScrollView style={styles.container}>
       {/* Header with user info and logout */}
@@ -354,51 +422,36 @@ const TaskCreation = ({ navigation }) => {
         </View>
       </View>
 
-      {/* Priority Buttons */}
+      {/* Priority Selection */}
       <View style={styles.inputContainer}>
         <Text style={styles.label}>Priority</Text>
         <View style={styles.priorityContainer}>
           <TouchableOpacity
-            style={[
-              styles.priorityButton,
-              priority === 'High' && styles.priorityButtonActive
-            ]}
+            style={getPriorityButtonStyle('High')}
             onPress={() => setPriority('High')}
           >
             <Text style={[
               styles.priorityButtonText,
               priority === 'High' && styles.priorityButtonTextActive
-            ]}>
-              High
-            </Text>
+            ]}>High</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[
-              styles.priorityButton,
-              priority === 'Medium' && styles.priorityButtonActive
-            ]}
+            style={getPriorityButtonStyle('Medium')}
             onPress={() => setPriority('Medium')}
           >
             <Text style={[
               styles.priorityButtonText,
               priority === 'Medium' && styles.priorityButtonTextActive
-            ]}>
-              Medium
-            </Text>
+            ]}>Medium</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[
-              styles.priorityButton,
-              priority === 'Low' && styles.priorityButtonActive
-            ]}
+            style={getPriorityButtonStyle('Low')}
             onPress={() => setPriority('Low')}
           >
             <Text style={[
               styles.priorityButtonText,
               priority === 'Low' && styles.priorityButtonTextActive
-            ]}>
-              Low
-            </Text>
+            ]}>Low</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -573,7 +626,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   logoutButton: {
-    backgroundColor: '#ff4444',
+    backgroundColor: '#007AFF',
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 8,
@@ -736,21 +789,20 @@ const styles = StyleSheet.create({
   priorityContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginTop: 8,
   },
   priorityButton: {
     flex: 1,
     padding: 12,
     marginHorizontal: 4,
     borderRadius: 8,
-    backgroundColor: '#f0f0f0',
     alignItems: 'center',
-  },
-  priorityButtonActive: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#f0f0f0',
   },
   priorityButtonText: {
     color: '#333',
     fontWeight: '600',
+    fontSize: 14,
   },
   priorityButtonTextActive: {
     color: '#fff',

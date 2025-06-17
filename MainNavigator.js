@@ -5,7 +5,6 @@ import { Ionicons } from '@expo/vector-icons';
 import TaskList from './TaskList';
 import TaskCreation from './TaskCreation';
 import Statistics from './Statistics';
-import APIStatus from './APIStatus';
 import AuthService from './AuthService';
 
 const Tab = createBottomTabNavigator();
@@ -113,17 +112,6 @@ const MainTabs = ({ user, onLogout }) => {
     </SafeAreaView>
   );
 
-  const APIStatusScreen = () => (
-    <SafeAreaView style={styles.safeContainer}>
-      <View style={styles.container}>
-        <Header title="API Status" />
-        <View style={styles.contentContainer}>
-          <APIStatus />
-        </View>
-      </View>
-    </SafeAreaView>
-  );
-
   return (
     <Tab.Navigator
       screenOptions={{
@@ -204,16 +192,6 @@ const MainTabs = ({ user, onLogout }) => {
           ),
         }}
       />
-      <Tab.Screen 
-        name="APIStatus" 
-        component={APIStatusScreen}
-        options={{
-          tabBarLabel: 'APIs',
-          tabBarIcon: ({ color }) => (
-            <Text style={[styles.tabIcon, { color }]}>🔧</Text>
-          ),
-        }}
-      />
     </Tab.Navigator>
   );
 };
@@ -259,13 +237,13 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   logoutButton: {
-    paddingHorizontal: 12,
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 15,
     paddingVertical: 8,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 6,
+    borderRadius: 8,
   },
   logoutText: {
-    color: '#666',
+    color: '#fff',
     fontSize: 14,
     fontWeight: '600',
   },
