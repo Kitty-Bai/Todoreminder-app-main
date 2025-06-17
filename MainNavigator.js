@@ -1,22 +1,21 @@
-import React, { useRef, useState } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import React, { useRef } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import MockAuthService from './MockAuthService';
-
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import TaskList from './TaskList';
 import TaskCreation from './TaskCreation';
 import Statistics from './Statistics';
 import APIStatus from './APIStatus';
+import AuthService from './AuthService';
 
 const Tab = createBottomTabNavigator();
 
-const MainNavigator = ({ user, onLogout }) => {
+const MainTabs = ({ user, onLogout }) => {
   const navigationRef = useRef();
 
   const handleLogout = async () => {
     try {
-      await MockAuthService.signOut();
+      await AuthService.logout();
       onLogout();
     } catch (error) {
       console.error('Logout error:', error);
@@ -26,7 +25,6 @@ const MainNavigator = ({ user, onLogout }) => {
   // Function to navigate to Day view with specific date
   const navigateToDay = (date) => {
     if (navigationRef.current) {
-      // Navigate to the Today (Day) tab with params
       navigationRef.current.navigate('Today', { selectedDate: date });
     }
   };
@@ -34,7 +32,7 @@ const MainNavigator = ({ user, onLogout }) => {
   // Header component with user info and logout
   const Header = ({ title }) => (
     <View style={styles.header}>
-      <View>
+      <View style={styles.headerLeft}>
         <Text style={styles.headerTitle}>{title}</Text>
         <Text style={styles.userInfo}>Welcome, {user.email}</Text>
       </View>
@@ -46,197 +44,234 @@ const MainNavigator = ({ user, onLogout }) => {
 
   // Screen components with headers
   const AllTasksScreen = () => (
-    <View style={styles.container}>
-      <Header title="All Tasks" />
-      <TaskList filterType="all" user={user} />
-    </View>
+    <SafeAreaView style={styles.safeContainer}>
+      <View style={styles.container}>
+        <Header title="All Tasks" />
+        <View style={styles.contentContainer}>
+          <TaskList filterType="all" user={user} />
+        </View>
+      </View>
+    </SafeAreaView>
   );
 
   const TodayTasksScreen = ({ route }) => {
     const selectedDate = route?.params?.selectedDate;
-    
     return (
-      <View style={styles.container}>
-        <Header title="Day" />
-        <TaskList 
-          filterType="today" 
-          user={user} 
-          selectedDate={selectedDate}
-        />
-      </View>
+      <SafeAreaView style={styles.safeContainer}>
+        <View style={styles.container}>
+          <Header title="Day" />
+          <View style={styles.contentContainer}>
+            <TaskList 
+              filterType="today" 
+              user={user} 
+              selectedDate={selectedDate}
+            />
+          </View>
+        </View>
+      </SafeAreaView>
     );
   };
 
   const WeekTasksScreen = () => (
-    <View style={styles.container}>
-      <Header title="Week" />
-      <TaskList filterType="week" user={user} />
-    </View>
+    <SafeAreaView style={styles.safeContainer}>
+      <View style={styles.container}>
+        <Header title="Week" />
+        <View style={styles.contentContainer}>
+          <TaskList filterType="week" user={user} />
+        </View>
+      </View>
+    </SafeAreaView>
   );
 
   const MonthTasksScreen = () => (
-    <View style={styles.container}>
-      <Header title="Month" />
-      <TaskList filterType="month" user={user} onNavigateToDay={navigateToDay} />
-    </View>
+    <SafeAreaView style={styles.safeContainer}>
+      <View style={styles.container}>
+        <Header title="Month" />
+        <View style={styles.contentContainer}>
+          <TaskList filterType="month" user={user} onNavigateToDay={navigateToDay} />
+        </View>
+      </View>
+    </SafeAreaView>
   );
 
   const CreateTaskScreen = () => (
-    <View style={styles.container}>
-      <TaskCreation user={user} onLogout={onLogout} />
-    </View>
+    <SafeAreaView style={styles.safeContainer}>
+      <View style={styles.container}>
+        <TaskCreation user={user} onLogout={onLogout} />
+      </View>
+    </SafeAreaView>
   );
 
   const StatisticsScreen = () => (
-    <View style={styles.container}>
-      <Header title="Statistics" />
-      <Statistics user={user} />
-    </View>
+    <SafeAreaView style={styles.safeContainer}>
+      <View style={styles.container}>
+        <Header title="Statistics" />
+        <View style={styles.contentContainer}>
+          <Statistics user={user} />
+        </View>
+      </View>
+    </SafeAreaView>
   );
 
   const APIStatusScreen = () => (
-    <View style={styles.container}>
-      <Header title="API Status" />
-      <APIStatus />
-    </View>
+    <SafeAreaView style={styles.safeContainer}>
+      <View style={styles.container}>
+        <Header title="API Status" />
+        <View style={styles.contentContainer}>
+          <APIStatus />
+        </View>
+      </View>
+    </SafeAreaView>
   );
 
   return (
-    <NavigationContainer ref={navigationRef}>
-      <Tab.Navigator
-        screenOptions={{
-          headerShown: false,
-          tabBarActiveTintColor: '#007AFF',
-          tabBarInactiveTintColor: '#666',
-          tabBarStyle: {
-            backgroundColor: '#fff',
-            borderTopWidth: 1,
-            borderTopColor: '#e0e0e0',
-            paddingBottom: 5,
-            paddingTop: 5,
-            height: 60,
-          },
-          tabBarLabelStyle: {
-            fontSize: 12,
-            fontWeight: '600',
-          },
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: '#007AFF',
+        tabBarInactiveTintColor: '#666',
+        tabBarStyle: {
+          backgroundColor: '#fff',
+          borderTopWidth: 1,
+          borderTopColor: '#e0e0e0',
+          paddingBottom: 8,
+          paddingTop: 8,
+          height: 70,
+        },
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
+        },
+      }}
+    >
+      <Tab.Screen 
+        name="AllTasks" 
+        component={AllTasksScreen}
+        options={{
+          tabBarLabel: 'All Tasks',
+          tabBarIcon: ({ color }) => (
+            <Text style={[styles.tabIcon, { color }]}>📋</Text>
+          ),
         }}
-      >
-        <Tab.Screen 
-          name="AllTasks" 
-          component={AllTasksScreen}
-          options={{
-            tabBarLabel: 'All Tasks',
-            tabBarIcon: ({ color }) => (
-              <Text style={[styles.tabIcon, { color }]}>📋</Text>
-            ),
-          }}
-        />
-        <Tab.Screen 
-          name="Today" 
-          component={TodayTasksScreen}
-          options={{
-            tabBarLabel: 'Day',
-            tabBarIcon: ({ color }) => (
-              <Text style={[styles.tabIcon, { color }]}>📅</Text>
-            ),
-          }}
-        />
-        <Tab.Screen 
-          name="Week" 
-          component={WeekTasksScreen}
-          options={{
-            tabBarLabel: 'Week',
-            tabBarIcon: ({ color }) => (
-              <Text style={[styles.tabIcon, { color }]}>🗓️</Text>
-            ),
-          }}
-        />
-        <Tab.Screen 
-          name="Month" 
-          component={MonthTasksScreen}
-          options={{
-            tabBarLabel: 'Month',
-            tabBarIcon: ({ color }) => (
-              <Text style={[styles.tabIcon, { color }]}>📆</Text>
-            ),
-          }}
-        />
-        <Tab.Screen 
-          name="Statistics" 
-          component={StatisticsScreen}
-          options={{
-            tabBarLabel: 'Statistics',
-            tabBarIcon: ({ color }) => (
-              <Text style={[styles.tabIcon, { color }]}>📊</Text>
-            ),
-          }}
-        />
-        <Tab.Screen 
-          name="Create" 
-          component={CreateTaskScreen}
-          options={{
-            tabBarLabel: 'Create',
-            tabBarIcon: ({ color }) => (
-              <Text style={[styles.tabIcon, { color }]}>➕</Text>
-            ),
-          }}
-        />
-        <Tab.Screen 
-          name="APIStatus" 
-          component={APIStatusScreen}
-          options={{
-            tabBarLabel: 'APIs',
-            tabBarIcon: ({ color }) => (
-              <Text style={[styles.tabIcon, { color }]}>🔧</Text>
-            ),
-          }}
-        />
-      </Tab.Navigator>
-    </NavigationContainer>
+      />
+      <Tab.Screen 
+        name="Today" 
+        component={TodayTasksScreen}
+        options={{
+          tabBarLabel: 'Day',
+          tabBarIcon: ({ color }) => (
+            <Text style={[styles.tabIcon, { color }]}>📅</Text>
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="Week" 
+        component={WeekTasksScreen}
+        options={{
+          tabBarLabel: 'Week',
+          tabBarIcon: ({ color }) => (
+            <Text style={[styles.tabIcon, { color }]}>🗓️</Text>
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="Month" 
+        component={MonthTasksScreen}
+        options={{
+          tabBarLabel: 'Month',
+          tabBarIcon: ({ color }) => (
+            <Text style={[styles.tabIcon, { color }]}>📆</Text>
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="Statistics" 
+        component={StatisticsScreen}
+        options={{
+          tabBarLabel: 'Statistics',
+          tabBarIcon: ({ color }) => (
+            <Text style={[styles.tabIcon, { color }]}>📊</Text>
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="Create" 
+        component={CreateTaskScreen}
+        options={{
+          tabBarLabel: 'Create',
+          tabBarIcon: ({ color }) => (
+            <Text style={[styles.tabIcon, { color }]}>➕</Text>
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="APIStatus" 
+        component={APIStatusScreen}
+        options={{
+          tabBarLabel: 'APIs',
+          tabBarIcon: ({ color }) => (
+            <Text style={[styles.tabIcon, { color }]}>🔧</Text>
+          ),
+        }}
+      />
+    </Tab.Navigator>
   );
 };
 
 const styles = StyleSheet.create({
+  safeContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  contentContainer: {
+    flex: 1,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: '#fff',
-    padding: 20,
-    paddingTop: 50, // Account for status bar
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  headerLeft: {
+    flex: 1,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
   },
   userInfo: {
     fontSize: 14,
     color: '#666',
-    marginTop: 4,
+    marginTop: 2,
   },
   logoutButton: {
-    backgroundColor: '#ff4444',
-    paddingHorizontal: 15,
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    backgroundColor: '#f0f0f0',
     borderRadius: 6,
   },
   logoutText: {
-    color: '#fff',
+    color: '#666',
     fontSize: 14,
     fontWeight: '600',
   },
   tabIcon: {
-    fontSize: 20,
-    marginBottom: 2,
+    fontSize: 24,
   },
 });
 
-export default MainNavigator; 
+export default MainTabs; 
