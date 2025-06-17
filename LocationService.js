@@ -6,29 +6,107 @@ class LocationService {
   static hasPermissions = false;
 
   /**
-   * Initialize location service and request permissions
+   * Check if location permissions are granted
+   */
+  static async checkPermissionStatus() {
+    try {
+      const { status: foregroundStatus } = await Location.getForegroundPermissionsAsync();
+      console.log('📍 Current location permission status:', foregroundStatus);
+      return foregroundStatus;
+    } catch (error) {
+      console.error('❌ Error checking location permission status:', error);
+      return 'error';
+    }
+  }
+
+  /**
+   * Request location permissions with proper error handling
+   */
+  static async requestLocationPermission() {
+    try {
+      console.log('📍 Requesting location permission...');
+      const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
+      console.log('📍 Permission request result:', { status, canAskAgain });
+      
+      if (status === 'granted') {
+        this.hasPermissions = true;
+        return { success: true, status };
+      }
+      
+      return {
+        success: false,
+        status,
+        canAskAgain,
+        error: 'Permission denied'
+      };
+    } catch (error) {
+      console.error('❌ Error requesting location permission:', error);
+      return {
+        success: false,
+        status: 'error',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Initialize location service with enhanced error handling
    */
   static async initialize() {
     try {
       console.log('📍 Initializing Location Service...');
       
-      // Request location permissions
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      
-      if (status === 'granted') {
-        this.hasPermissions = true;
-        console.log('✅ Location permissions granted');
-        
-        // Get current location
-        await this.getCurrentLocation();
-        return true;
-      } else {
-        console.log('❌ Location permissions denied');
-        return false;
+      // Check if location services are enabled
+      const servicesEnabled = await this.isLocationEnabled();
+      if (!servicesEnabled) {
+        console.log('❌ Location services are disabled');
+        return {
+          success: false,
+          error: 'SERVICES_DISABLED',
+          message: 'Location services are disabled on your device'
+        };
       }
+
+      // Check current permission status
+      const currentStatus = await this.checkPermissionStatus();
+      console.log('📍 Current permission status:', currentStatus);
+
+      if (currentStatus === 'granted') {
+        this.hasPermissions = true;
+        const location = await this.getCurrentLocation();
+        return {
+          success: true,
+          status: currentStatus,
+          location
+        };
+      }
+
+      // Request permission if not granted
+      const permissionResult = await this.requestLocationPermission();
+      if (permissionResult.success) {
+        const location = await this.getCurrentLocation();
+        return {
+          success: true,
+          status: 'granted',
+          location
+        };
+      }
+
+      return {
+        success: false,
+        error: 'PERMISSION_DENIED',
+        status: permissionResult.status,
+        canAskAgain: permissionResult.canAskAgain,
+        message: 'Location permission was denied'
+      };
+
     } catch (error) {
       console.error('❌ Error initializing location service:', error);
-      return false;
+      return {
+        success: false,
+        error: 'INITIALIZATION_ERROR',
+        message: error.message
+      };
     }
   }
 

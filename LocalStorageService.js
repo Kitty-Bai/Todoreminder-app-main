@@ -3,6 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const TASKS_KEY = '@tasks';
 const TAGS_KEY = '@tags';
 const SETTINGS_KEY = '@settings';
+const PENDING_TASKS_KEY = '@pending_tasks';
+const PENDING_CHANGES_KEY = '@pending_changes';
 
 class LocalStorageService {
   // Task methods
@@ -143,13 +145,79 @@ class LocalStorageService {
     }
   }
 
-  // Clear all data
+  // Pending tasks methods
+  static async getPendingTasks() {
+    try {
+      const tasks = await AsyncStorage.getItem(PENDING_TASKS_KEY);
+      return tasks ? JSON.parse(tasks) : [];
+    } catch (error) {
+      console.error('Error getting pending tasks:', error);
+      return [];
+    }
+  }
+
+  static async addPendingTask(task) {
+    try {
+      const tasks = await this.getPendingTasks();
+      await AsyncStorage.setItem(PENDING_TASKS_KEY, JSON.stringify([...tasks, task]));
+    } catch (error) {
+      console.error('Error adding pending task:', error);
+      throw error;
+    }
+  }
+
+  static async removePendingTask(taskId) {
+    try {
+      const tasks = await this.getPendingTasks();
+      const updatedTasks = tasks.filter(task => task.id !== taskId);
+      await AsyncStorage.setItem(PENDING_TASKS_KEY, JSON.stringify(updatedTasks));
+    } catch (error) {
+      console.error('Error removing pending task:', error);
+      throw error;
+    }
+  }
+
+  // Pending changes methods
+  static async getPendingChanges() {
+    try {
+      const changes = await AsyncStorage.getItem(PENDING_CHANGES_KEY);
+      return changes ? JSON.parse(changes) : [];
+    } catch (error) {
+      console.error('Error getting pending changes:', error);
+      return [];
+    }
+  }
+
+  static async addPendingChange(change) {
+    try {
+      const changes = await this.getPendingChanges();
+      await AsyncStorage.setItem(PENDING_CHANGES_KEY, JSON.stringify([...changes, change]));
+    } catch (error) {
+      console.error('Error adding pending change:', error);
+      throw error;
+    }
+  }
+
+  static async removePendingChange(changeId) {
+    try {
+      const changes = await this.getPendingChanges();
+      const updatedChanges = changes.filter(change => change.id !== changeId);
+      await AsyncStorage.setItem(PENDING_CHANGES_KEY, JSON.stringify(updatedChanges));
+    } catch (error) {
+      console.error('Error removing pending change:', error);
+      throw error;
+    }
+  }
+
+  // Clear all data including pending tasks and changes
   static async clearAll() {
     try {
       await AsyncStorage.multiRemove([
         TASKS_KEY,
         TAGS_KEY,
-        SETTINGS_KEY
+        SETTINGS_KEY,
+        PENDING_TASKS_KEY,
+        PENDING_CHANGES_KEY
       ]);
     } catch (error) {
       console.error('Error clearing data:', error);

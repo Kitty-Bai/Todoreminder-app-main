@@ -9,19 +9,24 @@ import {
   ScrollView,
   Platform,
   TextInput,
-  ActivityIndicator
+  ActivityIndicator,
+  AppState
 } from 'react-native';
 import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc, orderBy } from 'firebase/firestore';
 import { db } from './firebaseConfig';
 import NotificationService from './NotificationService';
 import LocalStorageService from './LocalStorageService';
 import { auth } from './firebaseConfig';
+import NetInfo from '@react-native-community/netinfo';
 
 const TaskList = ({ filterType = 'all', user, onNavigateToDay, selectedDate }) => {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [tags, setTags] = useState([]);
+  const [appState, setAppState] = useState(AppState.currentState);
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingSync, setPendingSync] = useState([]);
 
   // Navigation states for different views
   const [currentDate, setCurrentDate] = useState(() => selectedDate || new Date());
@@ -34,18 +39,91 @@ const TaskList = ({ filterType = 'all', user, onNavigateToDay, selectedDate }) =
   });
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
+  // Add network state listener
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      console.log('Connection type:', state.type);
+      console.log('Is connected?', state.isConnected);
+      setIsOnline(state.isConnected);
+      if (state.isConnected) {
+        syncPendingChanges();
+      }
+    });
+
+    // Check initial network state
+    NetInfo.fetch().then(state => {
+      console.log('Initial network state:', state.isConnected);
+      setIsOnline(state.isConnected);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // App state monitoring
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (appState.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('App has come to the foreground!');
+        syncPendingChanges();
+      }
+      setAppState(nextAppState);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [appState]);
+
+  // Sync pending changes when app becomes active
+  const syncPendingChanges = async () => {
+    try {
+      const pendingChanges = await LocalStorageService.getPendingChanges();
+      if (pendingChanges.length === 0) return;
+      
+      console.log('🔄 Syncing pending changes:', pendingChanges.length);
+      
+      for (const change of pendingChanges) {
+        try {
+          switch (change.type) {
+            case 'update':
+              await updateDoc(doc(db, 'tasks', change.taskId), change.data);
+              break;
+            case 'delete':
+              await deleteDoc(doc(db, 'tasks', change.taskId));
+              break;
+          }
+          await LocalStorageService.removePendingChange(change.id);
+          console.log(`✅ Synced change for task ${change.taskId}`);
+        } catch (error) {
+          console.error(`❌ Failed to sync change for task ${change.taskId}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error('Error syncing pending changes:', error);
+    }
+  };
+
   // Load data from local storage
   useEffect(() => {
     const loadLocalData = async () => {
       try {
-        const localTasks = await LocalStorageService.getTasks();
-        const localTags = await LocalStorageService.getTags();
-        
-        if (localTasks.length > 0) {
-          setTasks(localTasks);
-        }
-        if (localTags.length > 0) {
-          setTags(localTags);
+        // Only load from local storage if we're offline
+        if (!navigator.onLine) {
+          console.log('Device is offline, loading from local storage');
+          const localTasks = await LocalStorageService.getTasks();
+          const localTags = await LocalStorageService.getTags();
+          
+          if (localTasks.length > 0) {
+            console.log('Loading tasks from local storage:', localTasks.length);
+            setTasks(localTasks);
+          }
+          if (localTags.length > 0) {
+            setTags(localTags);
+          }
+        } else {
+          console.log('Device is online, skipping local storage load');
         }
       } catch (error) {
         console.error('Error loading local data:', error);
@@ -232,10 +310,10 @@ const TaskList = ({ filterType = 'all', user, onNavigateToDay, selectedDate }) =
     return taskDate.getMonth() === currentMonth.getMonth() && taskDate.getFullYear() === currentMonth.getFullYear();
   };
 
-  const filterTasks = (tasks) => {
+  const processTasksData = (tasks, filterType, selectedDate) => {
+    // First filter by date
     let filteredTasks = tasks;
     
-    // 首先按日期过滤
     if ((filterType === 'day' || filterType === 'today') && selectedDate) {
       const selectedDateStr = selectedDate.toISOString().split('T')[0];
       filteredTasks = tasks.filter(task => {
@@ -243,7 +321,7 @@ const TaskList = ({ filterType = 'all', user, onNavigateToDay, selectedDate }) =
         return taskDate === selectedDateStr;
       });
     } else if (filterType === 'today' && !selectedDate) {
-      // 如果是today视图但没有选择特定日期，则显示当前日期的任务
+      // For today view without specific date, show tasks for current date
       const todayStr = currentDate.toISOString().split('T')[0];
       filteredTasks = tasks.filter(task => {
         const taskDate = new Date(task.dueDate).toISOString().split('T')[0];
@@ -251,7 +329,7 @@ const TaskList = ({ filterType = 'all', user, onNavigateToDay, selectedDate }) =
       });
     }
 
-    // 然后按标签分组
+    // Then group by tags
     const groupedTasks = filteredTasks.reduce((groups, task) => {
       const tag = task.tag || 'No Tag';
       if (!groups[tag]) {
@@ -261,7 +339,7 @@ const TaskList = ({ filterType = 'all', user, onNavigateToDay, selectedDate }) =
       return groups;
     }, {});
 
-    // 将分组后的任务转换为数组格式
+    // Convert grouped tasks to array format
     return Object.entries(groupedTasks).map(([tag, tasks]) => ({
       tag,
       data: tasks
@@ -345,16 +423,28 @@ const TaskList = ({ filterType = 'all', user, onNavigateToDay, selectedDate }) =
   // Add useEffect for initial load
   useEffect(() => {
     console.log('Initial load of tasks');
-    fetchTasks();
-  }, []);
+    const unsubscribe = fetchTasks();
+    return () => {
+      if (unsubscribe && typeof unsubscribe === 'function') {
+        console.log('Cleaning up tasks subscription');
+        unsubscribe();
+      }
+    };
+  }, [user?.uid]); // Add user.uid as dependency
 
   // Add useEffect for date change
   useEffect(() => {
     if (filterType === 'day') {
       console.log('Date changed, refetching tasks for:', currentDate);
-      fetchTasks();
+      const unsubscribe = fetchTasks();
+      return () => {
+        if (unsubscribe && typeof unsubscribe === 'function') {
+          console.log('Cleaning up tasks subscription for date change');
+          unsubscribe();
+        }
+      };
     }
-  }, [currentDate, filterType]);
+  }, [currentDate, filterType, user?.uid]); // Add user.uid as dependency
 
   // Navigation functions
   const navigateDate = (direction) => {
@@ -390,37 +480,92 @@ const TaskList = ({ filterType = 'all', user, onNavigateToDay, selectedDate }) =
     setCurrentMonth(today);
   };
 
+  // Modified toggleTaskStatus to handle offline state
   const toggleTaskStatus = async (taskId, currentStatus) => {
     try {
-      const taskRef = doc(db, 'tasks', taskId);
       const newStatus = currentStatus === 'completed' ? 'pending' : 'completed';
-      await updateDoc(taskRef, { status: newStatus });
-      
-      // Send congratulations notification when task is completed
-      if (newStatus === 'completed') {
-        const task = tasks.find(t => t.id === taskId);
-        if (task) {
-          await NotificationService.sendTaskCompletedNotification(task.title);
+      const updateData = { 
+        status: newStatus,
+        completed: newStatus === 'completed',
+        updatedAt: new Date().toISOString()
+      };
+
+      // Optimistically update UI
+      setTasks(prevTasks => 
+        prevTasks.map(task => 
+          task.id === taskId 
+            ? { ...task, ...updateData }
+            : task
+        )
+      );
+
+      if (!isOnline) {
+        // Store in local storage
+        await LocalStorageService.updateTask(taskId, updateData);
+        // Add to pending sync queue
+        setPendingSync(prev => [...prev, {
+          type: 'update',
+          taskId,
+          data: updateData,
+          timestamp: Date.now()
+        }]);
+        console.log('📱 Task status updated locally, will sync when online');
+      } else {
+        const taskRef = doc(db, 'tasks', taskId);
+        await updateDoc(taskRef, updateData);
+        
+        // Send notification only when completing task
+        if (newStatus === 'completed') {
+          const task = tasks.find(t => t.id === taskId);
+          if (task) {
+            await NotificationService.sendTaskCompletedNotification(task.title);
+          }
         }
       }
     } catch (error) {
       console.error('Error updating task:', error);
+      // Revert optimistic update on error
+      setTasks(prevTasks => 
+        prevTasks.map(task => 
+          task.id === taskId 
+            ? { ...task, status: currentStatus, completed: currentStatus === 'completed' }
+            : task
+        )
+      );
       if (Platform.OS === 'web') {
-        alert('Error updating task');
+        alert('Error updating task: ' + error.message);
       }
     }
   };
 
+  // Modified deleteTask to handle offline state
   const deleteTask = async (taskId) => {
     try {
-      await deleteDoc(doc(db, 'tasks', taskId));
-      if (Platform.OS === 'web') {
-        alert('Task deleted successfully');
+      // Optimistically remove from UI
+      setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
+
+      if (!isOnline) {
+        // Store in local storage
+        await LocalStorageService.deleteTask(taskId);
+        // Add to pending sync queue
+        setPendingSync(prev => [...prev, {
+          type: 'delete',
+          taskId,
+          timestamp: Date.now()
+        }]);
+        console.log('📱 Task deleted locally, will sync when online');
+      } else {
+        await deleteDoc(doc(db, 'tasks', taskId));
       }
     } catch (error) {
       console.error('Error deleting task:', error);
+      // Revert optimistic deletion on error
+      const deletedTask = tasks.find(t => t.id === taskId);
+      if (deletedTask) {
+        setTasks(prevTasks => [...prevTasks, deletedTask]);
+      }
       if (Platform.OS === 'web') {
-        alert('Error deleting task');
+        alert('Error deleting task: ' + error.message);
       }
     }
   };
@@ -981,7 +1126,7 @@ const TaskList = ({ filterType = 'all', user, onNavigateToDay, selectedDate }) =
           {renderNavigationHeader()}
           {filterType === 'week' ? renderWeekView() : (
             <FlatList
-              data={filterTasks(tasks)}
+              data={processTasksData(tasks, filterType, selectedDate)}
               keyExtractor={(item) => item.tag}
               renderItem={renderItem}
               refreshing={refreshing}
