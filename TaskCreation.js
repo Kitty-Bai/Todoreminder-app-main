@@ -8,7 +8,9 @@ import {
   Alert,
   ScrollView,
   Platform,
-  Switch
+  Switch,
+  AppState,
+  Linking
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -36,12 +38,50 @@ const TaskCreation = ({ navigation }) => {
   const [repeat, setRepeat] = useState('daily');
   const [priority, setPriority] = useState('Medium');
   const [tags] = useState(['Work', 'Study', 'Family', 'Personal', 'Other']);
+  const [appState, setAppState] = useState(AppState.currentState);
   
   // AI and sensor states
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [showAiSuggestions, setShowAiSuggestions] = useState(false);
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
+
+  // App state monitoring
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (appState.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('App has come to the foreground!');
+        syncPendingTasks();
+      }
+      setAppState(nextAppState);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [appState]);
+
+  // Sync pending tasks when app becomes active
+  const syncPendingTasks = async () => {
+    try {
+      const pendingTasks = await LocalStorageService.getPendingTasks();
+      if (pendingTasks.length === 0) return;
+
+      console.log('🔄 Syncing pending tasks:', pendingTasks.length);
+
+      for (const task of pendingTasks) {
+        try {
+          const taskId = await FirebaseService.addTask(task);
+          console.log(`✅ Synced task: ${task.title}`);
+          await LocalStorageService.removePendingTask(task.id);
+        } catch (error) {
+          console.error(`❌ Failed to sync task: ${task.title}`, error);
+        }
+      }
+    } catch (error) {
+      console.error('Error syncing pending tasks:', error);
+    }
+  };
 
   // Reset form function
   const resetForm = () => {
@@ -83,51 +123,54 @@ const TaskCreation = ({ navigation }) => {
       dueTime: timeEnabled ? dueTime.toISOString() : null,
       repeat: repeatEnabled ? repeat : null,
       completed: false,
+      status: 'pending',
       createdAt: new Date().toISOString(),
       userId: currentUser.uid
     };
 
     try {
-      // Save to Firebase
-      const taskId = await FirebaseService.addTask(newTask);
-      console.log('Task saved successfully with ID:', taskId);
-      
-      // Save to local storage
-      await LocalStorageService.addTask({ ...newTask, id: taskId });
-
-      // Sync with calendar
+      // Try to save to Firebase first
       try {
-        const calendarPermission = await CalendarService.hasPermissions();
-        if (!calendarPermission) {
-          const granted = await CalendarService.requestPermissions();
-          if (!granted) {
-            console.log('Calendar permissions not granted');
-            return;
-          }
-        }
-        await CalendarService.createTaskEvent(newTask);
-        console.log('Task synced with calendar successfully');
-      } catch (calendarError) {
-        console.error('Failed to sync with calendar:', calendarError);
-        // Don't block task creation if calendar sync fails
-      }
-      
-      // Reset form
-      resetForm();
-      
-      // Show success message
-      Alert.alert('Success', 'Task saved successfully', [
-        {
-          text: 'OK',
-          onPress: () => {
-            if (navigation && typeof navigation.goBack === 'function') {
-              navigation.goBack();
-            } else {
-              console.log('Navigation not available, task saved but cannot return to previous screen');
+        const taskId = await FirebaseService.addTask(newTask);
+        console.log('Task saved successfully with ID:', taskId);
+        
+        // Save to local storage for offline access
+        await LocalStorageService.addTask({ ...newTask, id: taskId });
+
+        // Sync with calendar
+        try {
+          const calendarPermission = await CalendarService.hasPermissions();
+          if (!calendarPermission) {
+            const granted = await CalendarService.requestPermissions();
+            if (!granted) {
+              console.log('Calendar permissions not granted');
+              return;
             }
           }
+          await CalendarService.createTaskEvent(newTask);
+          console.log('Task synced with calendar successfully');
+        } catch (calendarError) {
+          console.error('Failed to sync with calendar:', calendarError);
         }
-      ]);
+        
+        Alert.alert('Success', 'Task saved successfully');
+      } catch (error) {
+        // If Firebase save fails, save locally
+        console.error('Failed to save to Firebase, saving locally:', error);
+        const tempId = 'local_' + Date.now();
+        const taskWithId = { ...newTask, id: tempId };
+        
+        await LocalStorageService.addTask(taskWithId);
+        await LocalStorageService.addPendingTask(taskWithId);
+        
+        Alert.alert('Info', 'Task saved locally and will sync when possible');
+      }
+      
+      // Reset form and navigate back
+      resetForm();
+      if (navigation && typeof navigation.goBack === 'function') {
+        navigation.goBack();
+      }
     } catch (error) {
       console.error('Error saving task:', error);
       Alert.alert('Error', 'Failed to save task');
@@ -220,18 +263,103 @@ const TaskCreation = ({ navigation }) => {
   // Location Services
   const enableLocationReminder = async () => {
     try {
-      const initialized = await LocationService.initialize();
-      if (initialized) {
-        const location = await LocationService.getCurrentLocation();
-        setCurrentLocation(location);
+      // Toggle off if already enabled
+      if (locationEnabled) {
+        setLocationEnabled(false);
+        setCurrentLocation(null);
+        return;
+      }
+
+      // Initialize location service
+      const result = await LocationService.initialize();
+      console.log('📍 Location initialization result:', result);
+
+      if (result.success) {
+        setCurrentLocation(result.location);
         setLocationEnabled(true);
-        Alert.alert('Location Enabled', `Current location: ${location?.address || 'Location obtained'}`);
-      } else {
-        Alert.alert('Location Error', 'Failed to enable location services. Please check your permissions.');
+        Alert.alert('Success', `Location enabled: ${result.location?.address || 'Location obtained'}`);
+        return;
+      }
+
+      // Handle different error cases
+      switch (result.error) {
+        case 'SERVICES_DISABLED':
+          Alert.alert(
+            'Location Services Disabled',
+            'Please enable location services in your device settings to use this feature.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { 
+                text: 'Open Settings', 
+                onPress: () => {
+                  if (Platform.OS === 'ios') {
+                    Linking.openURL('app-settings:');
+                  } else {
+                    Linking.openSettings();
+                  }
+                }
+              }
+            ]
+          );
+          break;
+
+        case 'PERMISSION_DENIED':
+          // If we can ask again, show a more informative message
+          if (result.canAskAgain) {
+            Alert.alert(
+              'Location Permission Required',
+              'This app needs location access to add location to your tasks. Would you like to grant permission?',
+              [
+                { text: 'Not Now', style: 'cancel' },
+                { 
+                  text: 'Grant Permission',
+                  onPress: async () => {
+                    const newResult = await LocationService.requestLocationPermission();
+                    if (newResult.success) {
+                      const location = await LocationService.getCurrentLocation();
+                      setCurrentLocation(location);
+                      setLocationEnabled(true);
+                      Alert.alert('Success', `Location enabled: ${location?.address || 'Location obtained'}`);
+                    }
+                  }
+                }
+              ]
+            );
+          } else {
+            // If we can't ask again, direct to settings
+            Alert.alert(
+              'Location Permission Required',
+              'Please enable location access in your device settings to use this feature.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { 
+                  text: 'Open Settings',
+                  onPress: () => {
+                    if (Platform.OS === 'ios') {
+                      Linking.openURL('app-settings:');
+                    } else {
+                      Linking.openSettings();
+                    }
+                  }
+                }
+              ]
+            );
+          }
+          break;
+
+        default:
+          Alert.alert(
+            'Error',
+            'An unexpected error occurred while enabling location services. Please try again later.'
+          );
+          break;
       }
     } catch (error) {
       console.error('Location initialization error:', error);
-      Alert.alert('Error', 'Failed to initialize location services');
+      Alert.alert(
+        'Error',
+        'Failed to initialize location services. Please try again later.'
+      );
     }
   };
 
@@ -303,19 +431,19 @@ const TaskCreation = ({ navigation }) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Priority buttons
+  // Priority button styles
   const getPriorityButtonStyle = (buttonPriority) => {
-    let backgroundColor = '#f0f0f0';  // 默认背景色
+    let backgroundColor = '#f0f0f0';  // Default background
     if (priority === buttonPriority) {
       switch (buttonPriority) {
         case 'High':
-          backgroundColor = '#ff4444';  // 红色
+          backgroundColor = '#ff4444';  // Red
           break;
         case 'Medium':
-          backgroundColor = '#ff9800';  // 橙色
+          backgroundColor = '#ff9800';  // Orange
           break;
         case 'Low':
-          backgroundColor = '#4caf50';  // 绿色
+          backgroundColor = '#4caf50';  // Green
           break;
       }
     }
